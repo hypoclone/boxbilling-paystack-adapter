@@ -198,90 +198,66 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     public function processTransaction($api_admin, $id, $data, $gateway_id)
     {
         if(APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
-            throw new Payment_Exception('Paystack IPN is not valid');
-        }    
+           throw new Payment_Exception('Paystack IPN is not valid');
+        }
 
         $ipn = $this->_getIpnObject($data); // paystack returns post body in webhook
-        
-        $tx = $api_admin->invoice_transaction_get(array('id' => $id));
-        
-        if($tx['status'] === Model_Transaction::STATUS_APPROVED && $tx['txn_status'] === self::TXN_SUCCESS ){
-            $d = array(
-                'id' => $id,
-                'status' => Model_Transaction::STATUS_PROCESSED,
-                'error' => '',
-                'error_code' => '',
-                'updated_at' => date('Y-m-d H:i:s'),
-            );
-            
-            $api_admin->invoice_transaction_update($d);
+        $tx = $api_admin->invoice_transaction_get(['id' => $id]);
+        $invoice_id = isset($tx['invoice_id']) ? $tx['invoice_id'] :  $ipn->data->metadata->bb_invoice_id;
+        if($tx['status'] === Model_Transaction::STATUS_PROCESSED)
+        {
             return;
         }
 
-        else{
-            
-        if($ipn->event === 'charge.success'){
-            $reference = $ipn->data->reference;
-            $amount = $ipn->data->amount * 1/100;
-            $currency = $ipn->data->currency;
-            $gateway_id = $ipn->data->metadata->bb_gateway_id;
-            $invoice_id = isset($tx['invoice_id']) ? $tx['invoice_id'] :  $ipn->data->metadata->bb_invoice_id;
+        $reference = $ipn->data->reference;
+        $amount = $ipn->data->amount * 1/100;
+        $currency = $ipn->data->currency;
 
-            $invoice = $api_admin->invoice_get(array('id' => $invoice_id));
+        $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
+        $client_id = $invoice['client']['id'];
 
-            $this->di['logger']->info("Processing transaction from Paystack with id: " .$reference);
-            $tx_data = array('id' => $id);
-            if (!$tx['status']) {
-                $tx_data['status'] = Model_Transaction::STATUS_RECEIVED;
-            }
-            
-            if (!$tx['invoice_id']) {
-                $tx_data['invoice_id'] = $invoice_id;
-            }
-            
-            if (!$tx['amount']) {
-                $tx_data['amount'] = $amount;
-            }
-
-            if (!$tx['currency']) {
-                $tx_data['currency'] = $currency;
-            }
-            
-            if (!$tx['txn_id']) {
-                $tx_data['txn_id'] = $reference;
-            }
-
-            if (!$tx['type']) {
-                $tx_data['type'] = \Payment_Transaction::TXTYPE_PAYMENT;
-            }
-            
+        $tx_data = ['id' => $id];
+        if (!$tx['invoice_id']) {
+            $tx_data['invoice_id'] = $invoice_id;
             $api_admin->invoice_transaction_update($tx_data);
-            
-            $this->verifyTransaction($api_admin, $id, $data); 
-
-            if ($this->config['auto_process_invoice']){
-                $client_id = $invoice['client']['id'];
-                if($ipn['payment_status'] == 'Completed') {
-                    $bd = array(
-                        'id'            =>  $client_id,
-                        'amount'        =>  $invoice['total'],
-                        'description'   =>  'Paystack transaction '.$reference,
-                        'type'          =>  'Paystack',
-                        'rel_id'        =>  $id,
-                    );
-                    
-                    $api_admin->client_balance_add_funds($bd);
-                    if($tx['invoice_id']) {
-                        $api_admin->invoice_pay_with_credits(array('id'=>$tx['invoice_id']));
-                    }
-                }
-            } 
-          
         }
 
+        if($tx['status'] === Model_Transaction::STATUS_RECEIVED) {
+            $this->verifyTransaction($api_admin, $id, $data);
+        }
+
+        if (!$tx['amount']) {
+            $tx_data['amount'] = $amount;
+        }
+        if (!$tx['currency']) {
+            $tx_data['currency'] = $currency;
         }
         
-   
+        if (!$tx['txn_id']) {
+            $tx_data['txn_id'] = $reference;
+        }
+        if (!$tx['type']) {
+            $tx_data['type'] = \Payment_Transaction::TXTYPE_PAYMENT;
+        }
+
+        if($ipn->event === 'charge.success') {
+            $markAsPaid = $this->config['auto_process_invoice'] ?? true;
+
+            $this->di['logger']->info("Processing transaction from Paystack with id: " .$reference);
+            
+            if ($markAsPaid){
+                $this->di['logger']->info("Executing");
+                if($ipn->data->status === 'success') {
+                    $this->di['logger']->info("IPN success.");
+                    // Don't execute. let cron activate it
+                    $api_admin->invoice_mark_as_paid([
+                        'id'=> $invoice_id,
+                    ]);
+                }
+            } 
+        }
+        $tx_data['status'] = Model_Transaction::STATUS_PROCESSED;
+        $api_admin->invoice_transaction_update($tx_data);
     }
 
     private function _getIpnObject($ipn){
@@ -305,7 +281,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
         $bindings = array(
             ':transaction_id' => $txn_id,
-            ':transaction_status' => $ipn['payment_status'],
+            ':transaction_status' => $ipn['data']['status'],
             ':transaction_type' => $ipn['txn_type'],
             ':transaction_amount' => $amount,
         );
@@ -322,42 +298,44 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     public function verifyTransaction($api_admin, $id, $ipn)
     {       
         $ipnObj = $this->_getIpnObject($ipn);
-        if(!$this->_issuccessEvent($ipnObj)) return false;
+        if(!$this->_issuccessEvent($ipnObj)) {
+            return false;
+        }
 
         $reference = $ipnObj->data->reference;
 
         $response = $this->request("/verify/".$reference);
         if(!$response) return false;
-        
+
         $obj = json_decode($response);
         $status = "unknown";
         if (isset($obj->status) && $obj->status) {
-            $d = array(
+            $txn = $api_admin->invoice_transaction_get(['id' => $id]);
+            $status = Model_Transaction::STATUS_APPROVED;
+            if ($txn['status'] === Model_Transaction::STATUS_PROCESSED ) {
+                $status = Model_Transaction::STATUS_PROCESSED;
+            }
+            $d = [
                 'id' => $id,
-                'status' => Model_Transaction::STATUS_APPROVED,
+                'status' => $status,
                 'txn_status' => $obj->data->status,
                 'note' => $obj->message,
                 'output' => $obj->data,
                 'error' => '',
-                'error_code' => '',
-                'updated_at' => date('Y-m-d H:i:s'),
-            );
-            $api_admin->invoice_transaction_update($d);
+                'error_code' => null,
+            ];
+            
         } else {
-
-            $d = array(
+            $d = [
                 'id' => $id,
                 'status' => Model_Transaction::STATUS_RECEIVED,
                 'error' => $obj->message,
-                'error_code' => '',
-                'txn_status' => "",
-                'updated_at' => date('Y-m-d H:i:s'),
-            );
-
-            $api_admin->invoice_transaction_update($d);
-
+            	'error_code' => null,
+                'txn_status' => $status,
+            ];
         }
-
+        $d['updated_at'] = date('Y-m-d H:i:s');
+        $api_admin->invoice_transaction_update($d);
         return $obj->status;
 
     }
@@ -474,6 +452,4 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             return true;
         }
     }
-    
-   
 }
