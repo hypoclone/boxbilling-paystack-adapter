@@ -256,7 +256,12 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                 }
             } 
         }
-        $tx_data['status'] = Model_Transaction::STATUS_PROCESSED;
+
+        $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
+
+        if ($invoice['status'] === \Model_Invoice::STATUS_PAID) {
+            $tx_data['status'] = Model_Transaction::STATUS_PROCESSED;
+        }
         $api_admin->invoice_transaction_update($tx_data);
     }
 
