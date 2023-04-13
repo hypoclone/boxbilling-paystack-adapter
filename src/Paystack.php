@@ -241,7 +241,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         }
 
         if($ipn->event === 'charge.success') {
-            $markAsPaid = $this->config['auto_process_invoice'] ?? true;
+            $markAsPaid = $this->config['auto_process_invoice'] ?? false;
 
             $this->di['logger']->info("Processing transaction from Paystack with id: " .$reference);
             
@@ -252,6 +252,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                     // Don't execute. let cron activate it
                     $api_admin->invoice_mark_as_paid([
                         'id'=> $invoice_id,
+                        'check_product_setup' => true
                     ]);
                 }
             } 
