@@ -198,7 +198,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     public function processTransaction($api_admin, $id, $data, $gateway_id)
     {
         if(APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
-           throw new Payment_Exception('Paystack IPN is not valid');
+            throw new Payment_Exception('Paystack IPN is not valid');
         }
 
         $ipn = $this->_getIpnObject($data); // paystack returns post body in webhook
@@ -359,8 +359,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                 $post_contents = array_merge($auth_params, $post_vars);
             }
         }
-        
-		
+
         $secretKey = $this->getSecretKey();
         
         if (!empty($pheaders)) {
@@ -450,12 +449,9 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         define('PAYSTACK_SECRET_KEY', $this->getSecretKey());
         
        // validate event do all at once to avoid timing attack
-       if($server['HTTP_X_PAYSTACK_SIGNATURE'] !== hash_hmac('sha512', $input, PAYSTACK_SECRET_KEY)){
-         return false;
+       if(isset($server['HTTP_X_PAYSTACK_SIGNATURE']) ){
+            return $server['HTTP_X_PAYSTACK_SIGNATURE'] === hash_hmac('sha512', $input, PAYSTACK_SECRET_KEY);
         }
-        else {
-            //http_response_code(200);
-            return true;
-        }
+        return false;
     }
 }
