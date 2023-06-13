@@ -418,7 +418,6 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         switch ($action) {
             case "verify":
                 return $this->verifyTransaction($api_admin, $id, $ipn);
-                break;
             default:
                 return;
 
