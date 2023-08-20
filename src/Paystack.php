@@ -10,7 +10,7 @@
  * with this source code in the file LICENSE
  */
 
-class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
+class Payment_Adapter_Paystack implements \FOSSBilling\InjectionAwareInterface
 {
     const ENDPOINT = 'https://api.paystack.co/transaction';
     const TXN_SUCCESS = 'success';
