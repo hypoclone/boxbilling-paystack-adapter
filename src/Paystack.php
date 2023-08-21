@@ -21,13 +21,12 @@ class Payment_Adapter_Paystack implements \FOSSBilling\InjectionAwareInterface
 
     private $url;
 
-    public function setDi($di)
+    public function setDi(\Pimple\Container $di): void
     {
         $this->di = $di;
     }
 
-    public function getDi()
-    {
+    public function getDi(): ?\Pimple\Container    {
         return $this->di;
     }
 
