@@ -1,6 +1,6 @@
 <?php
 /**
- * Paystack payment gateway adapter for FOSSBilling (BoxBilling-compatible).
+ * Paystack payment gateway adapter for FOSSBilling.
  *
  * @author  Samuel Apraku
  * @license Apache-2.0
@@ -11,7 +11,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     const ENDPOINT = 'https://api.paystack.co/transaction';
     const TXN_SUCCESS = 'success';
 
-    private $config = array();
+    private $config = [];
 
     protected $di;
 
@@ -46,39 +46,39 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     public static function getConfig()
     {
-        return array(
+        return [
             'supports_one_time_payments' => true,
             'supports_subscriptions' => false,
             'description' => 'Enter your Paystack API keys to start accepting payments by Paystack.',
             'description_client' => 'Pay by mobile money or debit/credit card.',
             'can_load_in_iframe' => true,
-            'logo' => array(
+            'logo' => [
                 'logo' => 'paystack.png',
                 'height' => '30px',
                 'width' => '65px',
-            ),
-            'form' => array(
-                'live_public_key' => array('text', array(
+            ],
+            'form' => [
+                'live_public_key' => ['text', [
                     'label' => 'Live Public Key',
-                ),),
-                'live_secret_key' => array('text', array(
+                ],],
+                'live_secret_key' => ['text', [
                     'label' => 'Live Secret Key',
-                ),),
-                'test_public_key' => array('text', array(
+                ],],
+                'test_public_key' => ['text', [
                     'label' => 'Test Public Key',
-                ),),
-                'test_secret_key' => array('text', array(
+                ],],
+                'test_secret_key' => ['text', [
                     'label' => 'Test Secret Key',
-                ),),
-                'charge' => array('text', array(
+                ],],
+                'charge' => ['text', [
                     'label' => 'Transaction Charge (%)',
-                ),),
-                'auto_process_invoice' => array('radio', array(
+                ],],
+                'auto_process_invoice' => ['radio', [
                     'label' => 'Process invoice after payment',
-                    'multiOptions' => array('1' => 'Yes', '0' => 'No'),
-                ),),
-            ),
-        );
+                    'multiOptions' => ['1' => 'Yes', '0' => 'No'],
+                ],],
+            ],
+        ];
     }
 
     public function getPublicKey()
@@ -121,7 +121,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     public function getHtml($api_admin, $invoice_id, $subscription)
     {
-        $invoice = $api_admin->invoice_get(array('id' => $invoice_id));
+        $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
 
         // Paystack expects the amount in the currency's subunit (pesewas/kobo/cents).
         $amount = round($this->getAmountInDefaultCurrency($invoice['currency'], $invoice['total']) * 100, 0, PHP_ROUND_HALF_UP);
@@ -191,10 +191,10 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     public function getInvoiceTitle(array $invoice)
     {
-        $p = array(
+        $p = [
             ':id' => sprintf('%05s', $invoice['nr']),
             ':serie' => $invoice['serie'],
-        );
+        ];
 
         return __('Payment for invoice :serie:id', $p);
     }
@@ -291,12 +291,12 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                   AND amount = :transaction_amount
                 LIMIT 2';
 
-        $bindings = array(
+        $bindings = [
             ':transaction_id' => $txn_id,
             ':transaction_status' => $ipn['data']['status'],
             ':transaction_type' => $ipn['txn_type'],
             ':transaction_amount' => $amount,
-        );
+        ];
 
         $rows = $this->di['db']->getAll($sql, $bindings);
 
@@ -361,7 +361,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $url = self::ENDPOINT . $path;
 
         $ch = curl_init();
-        curl_setopt_array($ch, array(
+        curl_setopt_array($ch, [
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_ENCODING => '',
@@ -369,11 +369,11 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             CURLOPT_TIMEOUT => 30,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
             CURLOPT_CUSTOMREQUEST => 'GET',
-            CURLOPT_HTTPHEADER => array(
+            CURLOPT_HTTPHEADER => [
                 'Authorization: Bearer ' . $secretKey,
                 'Cache-Control: no-cache',
-            ),
-        ));
+            ],
+        ]);
 
         $data = curl_exec($ch);
         if (curl_errno($ch)) {
@@ -390,12 +390,12 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
      */
     public function getActions()
     {
-        return array(
-            array(
+        return [
+            [
                 'name' => 'verify',
                 'label' => 'Verify Transaction',
-            ),
-        );
+            ],
+        ];
     }
 
     /**

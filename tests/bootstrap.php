@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Minimal stubs for the FOSSBilling/BoxBilling framework pieces the adapter references,
+ * Minimal stubs for the FOSSBilling framework pieces the adapter references,
  * so the adapter's pure logic can be unit-tested in isolation (no full platform needed).
  */
 

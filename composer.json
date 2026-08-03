@@ -1,9 +1,9 @@
 {
     "name": "samapraku/fossbilling-paystack-adapter",
-    "description": "Paystack payment gateway adapter for FOSSBilling (BoxBilling-compatible).",
+    "description": "Paystack payment gateway adapter for FOSSBilling.",
     "type": "library",
     "license": "Apache-2.0",
-    "keywords": ["fossbilling", "boxbilling", "paystack", "payment-gateway", "mobile-money", "ghana"],
+    "keywords": ["fossbilling", "paystack", "payment-gateway", "mobile-money", "ghana"],
     "authors": [
         { "name": "Samuel Apraku" }
     ],
