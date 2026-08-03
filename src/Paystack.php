@@ -1,9 +1,9 @@
 <?php
 /**
- * 
- * @author Samuel Apraku
- * @license   Apache-2.0
+ * Paystack payment gateway adapter for FOSSBilling (BoxBilling-compatible).
  *
+ * @author  Samuel Apraku
+ * @license Apache-2.0
  */
 
 class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
@@ -32,15 +32,15 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $this->config = $config;
 
         if (!function_exists('curl_exec')) {
-            throw new Payment_Exception('PHP Curl extension must be enabled in order to use Paystack gateway');
+            throw new Payment_Exception('PHP Curl extension must be enabled in order to use the Paystack gateway');
         }
 
         if (!isset($this->config['live_public_key'])) {
-            throw new Payment_Exception('Payment gateway "Paystack" is not configured properly. Please update "Live Public Key" parameter.');
+            throw new Payment_Exception('Payment gateway "Paystack" is not configured properly. Please update the "Live Public Key" parameter.');
         }
-        
+
         if (!isset($this->config['live_secret_key'])) {
-            throw new Payment_Exception('Payment gateway "Paystack" is not configured properly. Please update "Live Secret Key" parameter.');
+            throw new Payment_Exception('Payment gateway "Paystack" is not configured properly. Please update the "Live Secret Key" parameter.');
         }
     }
 
@@ -49,10 +49,10 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         return array(
             'supports_one_time_payments' => true,
             'supports_subscriptions' => false,
-            'description' => 'Enter your Paystack Secret Key to start accepting payments by Paystack.',
-            'description_client' => 'Fee: 2% (MoMo, Debit/Credit Cards)',
+            'description' => 'Enter your Paystack API keys to start accepting payments by Paystack.',
+            'description_client' => 'Pay by mobile money or debit/credit card.',
             'can_load_in_iframe' => true,
-	    'logo' => array(
+            'logo' => array(
                 'logo' => 'paystack.png',
                 'height' => '30px',
                 'width' => '65px',
@@ -72,31 +72,33 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                 ),),
                 'charge' => array('text', array(
                     'label' => 'Transaction Charge (%)',
-                ),
-                ),
+                ),),
                 'auto_process_invoice' => array('radio', array(
                     'label' => 'Process invoice after payment',
-                    'multiOptions' => array('1'=>'Yes', '0'=>'No')
-                ),
-                )
+                    'multiOptions' => array('1' => 'Yes', '0' => 'No'),
+                ),),
             ),
         );
     }
 
-    public function getPublicKey(){
-        if($this->config['test_mode']) {
-            return $this->config['test_public_key'];
+    public function getPublicKey()
+    {
+        if (!empty($this->config['test_mode'])) {
+            return $this->config['test_public_key'] ?? '';
         }
-        else return $this->config['live_public_key'];
+
+        return $this->config['live_public_key'] ?? '';
     }
 
-    public function getSecretKey(){
-        if($this->config['test_mode']) {
-            return $this->config['test_secret_key'];
+    public function getSecretKey()
+    {
+        if (!empty($this->config['test_mode'])) {
+            return $this->config['test_secret_key'] ?? '';
         }
-        else return $this->config['live_secret_key'];
+
+        return $this->config['live_secret_key'] ?? '';
     }
-    
+
     /**
      * Payment gateway endpoint
      *
@@ -109,6 +111,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     /**
      * Return payment gateway type
+     *
      * @return string
      */
     public function getType()
@@ -116,68 +119,75 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         return Payment_AdapterAbstract::TYPE_HTML;
     }
 
-  
     public function getHtml($api_admin, $invoice_id, $subscription)
     {
         $invoice = $api_admin->invoice_get(array('id' => $invoice_id));
-        // Paystack requires amount to be in pesewas/cents
-        $amount = round($this->getAmountInDefaultCurrency($invoice["currency"], $invoice["total"]) * 100, 0, PHP_ROUND_HALF_UP); 
-        
-        $fee = 0.00;
-              
-        if(is_numeric($this->config["charge"]) && $this->config["charge"] > 0){
-            $fee = round(($amount * $this->config["charge"] / 100 ), 0, PHP_ROUND_HALF_UP);
-        }
 
-        if($fee > 0){
-            $amount += $fee;
-        }
+        // Paystack expects the amount in the currency's subunit (pesewas/kobo/cents).
+        $amount = round($this->getAmountInDefaultCurrency($invoice['currency'], $invoice['total']) * 100, 0, PHP_ROUND_HALF_UP);
 
-        $form = '<div class="text-center">' . PHP_EOL;
-        $form .= '<p>Pay directly with MoMo/Debit/Credit Card.<br><strong>2% Fee</strong></p>'.PHP_EOL;
+        $charge = (isset($this->config['charge']) && is_numeric($this->config['charge'])) ? (float) $this->config['charge'] : 0.0;
+        if ($charge > 0) {
+            $amount += round($amount * $charge / 100, 0, PHP_ROUND_HALF_UP);
+        }
+        $amount = (int) $amount;
+
+        $feeNote = $charge > 0
+            ? '<br><strong>' . rtrim(rtrim(number_format($charge, 2), '0'), '.') . '% fee applies</strong>'
+            : '';
+
+        // Encode every customer-supplied value so it cannot break out of the JS context.
+        $publicKey = json_encode($this->getPublicKey());
+        $email     = json_encode($invoice['buyer']['email'] ?? '');
+        $firstName = json_encode($invoice['buyer']['first_name'] ?? '');
+        $lastName  = json_encode($invoice['buyer']['last_name'] ?? '');
+        $currency  = json_encode($this->getDefaultCurrency());
+        $gatewayId = (int) $invoice['gateway_id'];
+        $invoiceId = (int) $invoice['id'];
+
+        $form  = '<div class="text-center">' . PHP_EOL;
+        $form .= '<p>Pay with mobile money or debit/credit card.' . $feeNote . '</p>' . PHP_EOL;
         $form .= '<form id="paymentForm">' . PHP_EOL;
-        $form .= '<input type="submit" class="btn btn-alt btn-primary btn-large" value="Complete Payment with Paystack" />'.PHP_EOL;
-        $form .= '</form>'. PHP_EOL;
-        $form .= '</div>'.PHP_EOL;
-        $form .= '<script src="https://js.paystack.co/v1/inline.js"></script>'.PHP_EOL;
+        $form .= '<input type="submit" class="btn btn-alt btn-primary btn-large" value="Complete Payment with Paystack" />' . PHP_EOL;
+        $form .= '</form>' . PHP_EOL;
+        $form .= '</div>' . PHP_EOL;
+        $form .= '<script src="https://js.paystack.co/v1/inline.js"></script>' . PHP_EOL;
         $form .= "<script type='text/javascript'>
-                    const paymentForm = document.getElementById('paymentForm');
-                    paymentForm.addEventListener('submit', payWithPaystack, false);
-                    function payWithPaystack(e) {
-                    e.preventDefault();
-                    let handler = PaystackPop.setup({
-                    key:'".$this->getPublicKey()."', 
-                    email:'".$invoice['buyer']['email']."',
-                    amount: $amount,
-                    firstname:'".$invoice['buyer']['first_name']."',
-                    lastname:'".$invoice['buyer']['last_name']."',
-                    currency: '".$this->getDefaultCurrency()."',
-                    metadata: { 
-                        bb_gateway_id:".$invoice['gateway_id'].",
-                        bb_invoice_id:".$invoice['id'].",
-                        custom_fields: [
-                                        {
-                                           display_name: 'Invoice ID',
-                                           variable_name: 'bb_invoice_id',
-                        	               value:". $invoice['id']."
-                                           }
-                                            ]
-                                        },
-                    onClose: function(){
-                                alert('Payment has been cancelled.');
-                            },
-                    callback: function(response){
-                                let message = 'Payment complete! Reference: ' + response.reference;
-                                alert(message);
-                                }
-                                });
-                                handler.openIframe();
-                            }
-                </script>".PHP_EOL;    
+    const paymentForm = document.getElementById('paymentForm');
+    paymentForm.addEventListener('submit', payWithPaystack, false);
+    function payWithPaystack(e) {
+        e.preventDefault();
+        let handler = PaystackPop.setup({
+            key: $publicKey,
+            email: $email,
+            amount: $amount,
+            firstname: $firstName,
+            lastname: $lastName,
+            currency: $currency,
+            metadata: {
+                bb_gateway_id: $gatewayId,
+                bb_invoice_id: $invoiceId,
+                custom_fields: [
+                    {
+                        display_name: 'Invoice ID',
+                        variable_name: 'bb_invoice_id',
+                        value: $invoiceId
+                    }
+                ]
+            },
+            onClose: function () {
+                alert('Payment has been cancelled.');
+            },
+            callback: function (response) {
+                alert('Payment complete! Reference: ' + response.reference);
+            }
+        });
+        handler.openIframe();
+    }
+</script>" . PHP_EOL;
 
         return $form;
     }
-
 
     public function getInvoiceTitle(array $invoice)
     {
@@ -185,33 +195,31 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             ':id' => sprintf('%05s', $invoice['nr']),
             ':serie' => $invoice['serie'],
         );
+
         return __('Payment for invoice :serie:id', $p);
     }
 
-
     /**
-     * @param $api_admin - admin api
-     * @param $id - transaction id from db
-     * @param $data - ipn data
+     * @param $api_admin  - admin api
+     * @param $id         - transaction id from db
+     * @param $data       - ipn data
      * @param $gateway_id - gateway id
      */
-
     public function processTransaction($api_admin, $id, $data, $gateway_id)
     {
-        if(APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
+        if (APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
             throw new Payment_Exception('Paystack IPN is not valid');
         }
 
         $ipn = $this->_getIpnObject($data); // paystack returns post body in webhook
         $tx = $api_admin->invoice_transaction_get(['id' => $id]);
-        $invoice_id = isset($tx['invoice_id']) ? $tx['invoice_id'] :  $ipn->data->metadata->bb_invoice_id;
-        if($tx['status'] === Model_Transaction::STATUS_PROCESSED)
-        {
+        $invoice_id = isset($tx['invoice_id']) ? $tx['invoice_id'] : $ipn->data->metadata->bb_invoice_id;
+        if ($tx['status'] === Model_Transaction::STATUS_PROCESSED) {
             return;
         }
 
         $reference = $ipn->data->reference;
-        $amount = $ipn->data->amount * 1/100;
+        $amount = $ipn->data->amount * 1 / 100;
         $currency = $ipn->data->currency;
 
         $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
@@ -223,7 +231,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             $api_admin->invoice_transaction_update($tx_data);
         }
 
-        if($tx['status'] === Model_Transaction::STATUS_RECEIVED) {
+        if ($tx['status'] === Model_Transaction::STATUS_RECEIVED) {
             $this->verifyTransaction($api_admin, $id, $data);
         }
 
@@ -233,7 +241,6 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         if (!$tx['currency']) {
             $tx_data['currency'] = $currency;
         }
-        
         if (!$tx['txn_id']) {
             $tx_data['txn_id'] = $reference;
         }
@@ -241,22 +248,19 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             $tx_data['type'] = \Payment_Transaction::TXTYPE_PAYMENT;
         }
 
-        if($ipn->event === 'charge.success') {
+        if ($ipn->event === 'charge.success') {
             $markAsPaid = $this->config['auto_process_invoice'] ?? false;
 
-            $this->di['logger']->info("Processing transaction from Paystack with id: " .$reference);
-            
-            if ($markAsPaid){
-                $this->di['logger']->info("Executing");
-                if($ipn->data->status === 'success') {
-                    $this->di['logger']->info("IPN success.");
-                    // Don't execute. let cron activate it
+            $this->di['logger']->info('Processing transaction from Paystack with id: ' . $reference);
+
+            if ($markAsPaid) {
+                if ($ipn->data->status === 'success') {
                     $api_admin->invoice_mark_as_paid([
-                        'id'=> $invoice_id,
-                        'check_product_setup' => true
+                        'id' => $invoice_id,
+                        'check_product_setup' => true,
                     ]);
                 }
-            } 
+            }
         }
 
         $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
@@ -267,14 +271,15 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $api_admin->invoice_transaction_update($tx_data);
     }
 
-    private function _getIpnObject($ipn){
-        return json_decode($ipn['http_raw_post_data']); 
+    private function _getIpnObject($ipn)
+    {
+        return json_decode($ipn['http_raw_post_data']);
     }
 
-    private function _isSuccessEvent($ipnObject) : bool {
-        return $ipnObject->event === 'charge.success';
+    private function _isSuccessEvent($ipnObject): bool
+    {
+        return isset($ipnObject->event) && $ipnObject->event === 'charge.success';
     }
-
 
     public function isIpnDuplicate($txn_id, $invoice_id, $gateway_id, $amount, $ipn)
     {
@@ -294,32 +299,30 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         );
 
         $rows = $this->di['db']->getAll($sql, $bindings);
-        if (count($rows) > 1){
-            return true;
-        }
 
-
-        return false;
+        return count($rows) > 1;
     }
 
     public function verifyTransaction($api_admin, $id, $ipn)
-    {       
+    {
         $ipnObj = $this->_getIpnObject($ipn);
-        if(!$this->_issuccessEvent($ipnObj)) {
+        if (!$this->_isSuccessEvent($ipnObj)) {
             return false;
         }
 
         $reference = $ipnObj->data->reference;
 
-        $response = $this->request("/verify/".$reference);
-        if(!$response) return false;
+        $response = $this->request('/verify/' . $reference);
+        if (!$response) {
+            return false;
+        }
 
         $obj = json_decode($response);
-        $status = "unknown";
+        $status = 'unknown';
         if (isset($obj->status) && $obj->status) {
             $txn = $api_admin->invoice_transaction_get(['id' => $id]);
             $status = Model_Transaction::STATUS_APPROVED;
-            if ($txn['status'] === Model_Transaction::STATUS_PROCESSED ) {
+            if ($txn['status'] === Model_Transaction::STATUS_PROCESSED) {
                 $status = Model_Transaction::STATUS_PROCESSED;
             }
             $d = [
@@ -331,70 +334,56 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
                 'error' => '',
                 'error_code' => null,
             ];
-            
         } else {
             $d = [
                 'id' => $id,
                 'status' => Model_Transaction::STATUS_RECEIVED,
                 'error' => $obj->message,
-            	'error_code' => null,
+                'error_code' => null,
                 'txn_status' => $status,
             ];
         }
         $d['updated_at'] = date('Y-m-d H:i:s');
         $api_admin->invoice_transaction_update($d);
-        return $obj->status;
 
+        return $obj->status;
     }
 
-	/**
-	 * @param string $url
-	 */
-	private function request($path, $post_vars = array(), $pheaders = array())
+    /**
+     * Perform an authenticated GET request against the Paystack transaction API.
+     *
+     * @param string $path
+     * @return string|false
+     */
+    private function request($path)
     {
-        $post_contents = array();
-        
-		if ($post_vars) {
-            if(is_array($post_vars)){
-                $post_contents = array_merge($auth_params, $post_vars);
-            }
-        }
-
         $secretKey = $this->getSecretKey();
-        
-        if (!empty($pheaders)) {
-			if (!is_array($pheaders)) {
-				$headers[count($headers)] = $pheaders;
-			} else {
-				$next = count($headers);
-				$count = count($pheaders);
-				for ($i = 0; $i < $count; $i++) { $headers[$next + $i] = $pheaders[$i]; }
-			}
-		}
-		    
-        $url = self::ENDPOINT.$path;
+        $url = self::ENDPOINT . $path;
 
         $ch = curl_init();
-		curl_setopt_array($ch, array(
+        curl_setopt_array($ch, array(
             CURLOPT_URL => $url,
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_ENCODING => "",
+            CURLOPT_ENCODING => '',
             CURLOPT_MAXREDIRS => 10,
             CURLOPT_TIMEOUT => 30,
             CURLOPT_HTTP_VERSION => CURL_HTTP_VERSION_1_1,
-            CURLOPT_CUSTOMREQUEST => "GET",
+            CURLOPT_CUSTOMREQUEST => 'GET',
             CURLOPT_HTTPHEADER => array(
-                                    "Authorization: Bearer $secretKey",
-                                    "Cache-Control: no-cache",
-                                    ),
+                'Authorization: Bearer ' . $secretKey,
+                'Cache-Control: no-cache',
+            ),
         ));
 
-		$data = curl_exec($ch);      
-		if (curl_errno($ch)) return false;
-		curl_close($ch);
-		return $data;
-	}
-    
+        $data = curl_exec($ch);
+        if (curl_errno($ch)) {
+            curl_close($ch);
+            return false;
+        }
+        curl_close($ch);
+
+        return $data;
+    }
 
     /**
      * Generate links for performing actions required by gateway
@@ -410,47 +399,51 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     }
 
     /**
-     * process actions to be performed by gateway
+     * Process actions to be performed by gateway
      */
     public function processAction($api_admin, $id, $ipn, $gateway_id, $action)
     {
-
         switch ($action) {
-            case "verify":
+            case 'verify':
                 return $this->verifyTransaction($api_admin, $id, $ipn);
-                break;
             default:
                 return;
-
         }
     }
 
     protected function getAmountInDefaultCurrency($currency, $amount)
     {
         $currencyService = $this->di['mod_service']('currency');
-        return $currencyService->toBaseCurrency($currency, $amount);
 
+        return $currencyService->toBaseCurrency($currency, $amount);
     }
 
     protected function getDefaultCurrency()
     {
         $currencyService = $this->di['mod_service']('currency');
         $default = $currencyService->getDefault();
+
         return $default->code;
     }
-     
-	private function isIpnValid($data)
+
+    /**
+     * Validate a Paystack webhook by verifying its signature header.
+     *
+     * @param array $data
+     * @return bool
+     */
+    private function isIpnValid($data)
     {
-        // only a post with paystack signature header gets our attention
         $server = $data['server'];
         $input = $data['http_raw_post_data'];
 
-        define('PAYSTACK_SECRET_KEY', $this->getSecretKey());
-        
-       // validate event do all at once to avoid timing attack
-       if(isset($server['HTTP_X_PAYSTACK_SIGNATURE']) ){
-            return $server['HTTP_X_PAYSTACK_SIGNATURE'] === hash_hmac('sha512', $input, PAYSTACK_SECRET_KEY);
+        if (!isset($server['HTTP_X_PAYSTACK_SIGNATURE'])) {
+            return false;
         }
-        return false;
+
+        $expected = hash_hmac('sha512', $input, $this->getSecretKey());
+
+        // Timing-safe comparison.
+        return hash_equals($expected, (string) $server['HTTP_X_PAYSTACK_SIGNATURE']);
     }
 }
