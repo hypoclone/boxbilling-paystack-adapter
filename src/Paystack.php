@@ -6,7 +6,7 @@
  * @license Apache-2.0
  */
 
-class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
+class Payment_Adapter_Paystack implements \FOSSBilling\InjectionAwareInterface
 {
     const ENDPOINT = 'https://api.paystack.co/transaction';
     const TXN_SUCCESS = 'success';
@@ -17,12 +17,12 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     private $url;
 
-    public function setDi($di)
+    public function setDi(\Pimple\Container $di): void
     {
         $this->di = $di;
     }
 
-    public function getDi()
+    public function getDi(): ?\Pimple\Container
     {
         return $this->di;
     }
@@ -207,7 +207,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
      */
     public function processTransaction($api_admin, $id, $data, $gateway_id)
     {
-        if (APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
+        if (!$this->isIpnValid($data)) {
             throw new Payment_Exception('Paystack IPN is not valid');
         }
 
@@ -223,7 +223,6 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $currency = $ipn->data->currency;
 
         $invoice = $api_admin->invoice_get(['id' => $invoice_id]);
-        $client_id = $invoice['client']['id'];
 
         $tx_data = ['id' => $id];
         if (!$tx['invoice_id']) {
@@ -248,18 +247,16 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             $tx_data['type'] = \Payment_Transaction::TXTYPE_PAYMENT;
         }
 
-        if ($ipn->event === 'charge.success') {
+        if ($this->_isSuccessEvent($ipn)) {
             $markAsPaid = $this->config['auto_process_invoice'] ?? false;
 
             $this->di['logger']->info('Processing transaction from Paystack with id: ' . $reference);
 
-            if ($markAsPaid) {
-                if ($ipn->data->status === 'success') {
-                    $api_admin->invoice_mark_as_paid([
-                        'id' => $invoice_id,
-                        'check_product_setup' => true,
-                    ]);
-                }
+            if ($markAsPaid && $ipn->data->status === self::TXN_SUCCESS) {
+                $api_admin->invoice_mark_as_paid([
+                    'id' => $invoice_id,
+                    'check_product_setup' => true,
+                ]);
             }
         }
 
@@ -312,12 +309,16 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
         $reference = $ipnObj->data->reference;
 
-        $response = $this->request('/verify/' . $reference);
+        $response = $this->request('/verify/' . rawurlencode($reference));
         if (!$response) {
             return false;
         }
 
         $obj = json_decode($response);
+        if (!is_object($obj)) {
+            return false;
+        }
+
         $status = 'unknown';
         if (isset($obj->status) && $obj->status) {
             $txn = $api_admin->invoice_transaction_get(['id' => $id]);
@@ -338,7 +339,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
             $d = [
                 'id' => $id,
                 'status' => Model_Transaction::STATUS_RECEIVED,
-                'error' => $obj->message,
+                'error' => $obj->message ?? 'Paystack could not verify this transaction',
                 'error_code' => null,
                 'txn_status' => $status,
             ];
@@ -346,7 +347,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $d['updated_at'] = date('Y-m-d H:i:s');
         $api_admin->invoice_transaction_update($d);
 
-        return $obj->status;
+        return $obj->status ?? false;
     }
 
     /**
@@ -355,7 +356,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
      * @param string $path
      * @return string|false
      */
-    private function request($path)
+    protected function request($path)
     {
         $secretKey = $this->getSecretKey();
         $url = self::ENDPOINT . $path;
@@ -378,6 +379,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         $data = curl_exec($ch);
         if (curl_errno($ch)) {
             curl_close($ch);
+
             return false;
         }
         curl_close($ch);
@@ -434,8 +436,8 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
      */
     private function isIpnValid($data)
     {
-        $server = $data['server'];
-        $input = $data['http_raw_post_data'];
+        $server = $data['server'] ?? [];
+        $input = $data['http_raw_post_data'] ?? '';
 
         if (!isset($server['HTTP_X_PAYSTACK_SIGNATURE'])) {
             return false;

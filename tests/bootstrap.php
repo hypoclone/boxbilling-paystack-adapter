@@ -5,13 +5,13 @@
  * so the adapter's pure logic can be unit-tested in isolation (no full platform needed).
  */
 
-namespace Box {
+namespace FOSSBilling {
     if (!interface_exists(InjectionAwareInterface::class)) {
         interface InjectionAwareInterface
         {
-            public function setDi($di);
+            public function setDi(\Pimple\Container $di): void;
 
-            public function getDi();
+            public function getDi(): ?\Pimple\Container;
         }
     }
 }
