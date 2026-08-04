@@ -1,12 +1,16 @@
 <?php
 /**
- * 
- * @author Samuel Apraku
+ * BoxBilling
+ *
+ * @copyright BoxBilling, Inc (http://www.boxbilling.com)
  * @license   Apache-2.0
  *
+ * Copyright BoxBilling, Inc
+ * This source file is subject to the Apache-2.0 License that is bundled
+ * with this source code in the file LICENSE
  */
 
-class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
+class Payment_Adapter_Paystack implements \FOSSBilling\InjectionAwareInterface
 {
     const ENDPOINT = 'https://api.paystack.co/transaction';
     const TXN_SUCCESS = 'success';
@@ -17,13 +21,12 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     private $url;
 
-    public function setDi($di)
+    public function setDi(\Pimple\Container $di): void
     {
         $this->di = $di;
     }
 
-    public function getDi()
-    {
+    public function getDi(): ?\Pimple\Container    {
         return $this->di;
     }
 
@@ -115,7 +118,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
     public function getHtml($api_admin, $invoice_id, $subscription)
     {
         $invoice = $api_admin->invoice_get(array('id' => $invoice_id));
-        // Paystack requires amount to be in pesewas/cents
+        // Paystack requires amount to be in pesewas
         $amount = round($this->getAmountInDefaultCurrency($invoice["currency"], $invoice["total"]) * 100, 0, PHP_ROUND_HALF_UP); 
         
         $fee = 0.00;
@@ -193,7 +196,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     public function processTransaction($api_admin, $id, $data, $gateway_id)
     {
-        if(APPLICATION_ENV != 'testing' && !$this->isIpnValid($data)) {
+        if(!$this->isIpnValid($data)) {
             throw new Payment_Exception('Paystack IPN is not valid');
         }
 
@@ -342,6 +345,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     }
 
+    
 	/**
 	 * @param string $url
 	 */
@@ -413,7 +417,6 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
         switch ($action) {
             case "verify":
                 return $this->verifyTransaction($api_admin, $id, $ipn);
-                break;
             default:
                 return;
 
@@ -422,6 +425,7 @@ class Payment_Adapter_Paystack implements \Box\InjectionAwareInterface
 
     protected function getAmountInDefaultCurrency($currency, $amount)
     {
+
         $currencyService = $this->di['mod_service']('currency');
         return $currencyService->toBaseCurrency($currency, $amount);
 
