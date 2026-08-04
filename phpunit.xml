@@ -4,10 +4,17 @@
          bootstrap="tests/bootstrap.php"
          colors="true"
          failOnWarning="true"
+         failOnNotice="true"
+         failOnDeprecation="true"
          failOnRisky="true">
     <testsuites>
         <testsuite name="unit">
             <directory>tests</directory>
         </testsuite>
     </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
 </phpunit>

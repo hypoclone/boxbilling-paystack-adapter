@@ -270,7 +270,7 @@ class Payment_Adapter_Paystack implements \FOSSBilling\InjectionAwareInterface
 
     private function _getIpnObject($ipn)
     {
-        return json_decode($ipn['http_raw_post_data']);
+        return json_decode((string) ($ipn['http_raw_post_data'] ?? ''));
     }
 
     private function _isSuccessEvent($ipnObject): bool
